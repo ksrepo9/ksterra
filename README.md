@@ -1,214 +1,371 @@
-# AWS EC2 Scenario-Based Interview Questions & Answers
+# AWS EBS, Snapshots, AMI & Launch Templates Scenario-Based Questions & Answers
 
-## 1. **High CPU Utilization Scenario**
-**Question:** You receive an alert that an EC2 instance is consistently at 90% CPU utilization during business hours. How would you investigate and resolve this?
-
-**Answer:**
-1. **Immediate investigation:**
-   - Check CloudWatch metrics for CPU utilization patterns
-   - Use CloudWatch Logs Insights to analyze application logs
-   - SSH into instance and run `top`, `htop`, or `vmstat` to identify processes
-   - Check application-specific metrics (APM tools, application logs)
-
-2. **Short-term fixes:**
-   - Scale vertically: Change instance type to larger CPU capacity
-   - Scale horizontally: Add more instances behind ELB/ALB
-   - Implement Auto Scaling based on CPU metrics
-
-3. **Long-term solutions:**
-   - Optimize application code
-   - Implement caching (ElastiCache)
-   - Use asynchronous processing (SQS + Lambda)
-   - Consider moving to containers (ECS/EKS) for better resource utilization
-
-4. **Prevention:**
-   - Set up CloudWatch alarms at 70-80% threshold
-   - Implement proper Auto Scaling policies
-   - Regular performance testing
-
-## 2. **Instance Connectivity Issue**
-**Question:** Developers cannot SSH into an EC2 instance. What steps would you take to troubleshoot?
+## 1. **Data Loss Prevention & Recovery**
+**Question:** A critical database running on EBS-backed EC2 instance was accidentally deleted by a developer. How would you recover the data with minimal downtime?
 
 **Answer:**
-1. **Check instance state:**
-   - Verify instance is in "running" state in AWS Console
-   - Check System Status and Instance Status checks
+1. **Immediate assessment:**
+   - Determine when the deletion occurred
+   - Check if the instance is EBS-backed (not instance store)
+   - Verify latest available EBS snapshots
 
-2. **Security Group verification:**
-   - Ensure port 22 is open to relevant IP ranges
-   - Check Network ACLs for any deny rules
+2. **Recovery options:**
+   - **Option A (Using existing snapshot):**
+     - Create new EBS volume from most recent snapshot
+     - Stop the affected EC2 instance
+     - Detach the corrupted volume, attach new volume
+     - Modify file system mount if necessary
+     - Start instance
+   
+   - **Option B (Create new instance):**
+     - Create AMI from snapshot (if data volume is root volume)
+     - Launch new EC2 instance from this AMI
+     - Update DNS/ELB to point to new instance
+   
+   - **Option C (Volume swap):**
+     - Create new volume from snapshot
+     - Attach as secondary volume to running instance
+     - Copy data to existing volume (if only partial data loss)
 
-3. **Key pair and authentication:**
-   - Verify correct key pair is being used
-   - Check if instance has IAM role with proper permissions
+3. **Best practice implementation:**
+   - **RPO/RTO alignment:** Implement more frequent snapshots if RPO is too large
+   - **Automation:** Use Data Lifecycle Manager for automated snapshots
+   - **Testing:** Regularly test recovery procedures
+   - **Protection:** Enable delete protection on critical volumes
 
-4. **Network troubleshooting:**
-   - Use VPC Reachability Analyzer
-   - Check route tables for proper routing
-   - Verify Internet Gateway attachment for public instances
-   - For private instances: check NAT Gateway/VPC endpoints
-
-5. **Instance-level checks:**
-   - Use EC2 Instance Connect or SSM Session Manager as alternatives
-   - Check instance logs via AWS Console (Get System Log)
-   - Verify if OS-level firewall (iptables, firewalld) is blocking SSH
-
-## 3. **Cost Optimization Scenario**
-**Question:** Your EC2 costs have increased by 40% this month. How would you identify the cause and reduce costs?
-
-**Answer:**
-1. **Cost analysis:**
-   - Use AWS Cost Explorer to identify service/resource breakdown
-   - Check for underutilized instances (low CPU/memory usage)
-   - Identify non-production instances running 24/7
-
-2. **Right-sizing:**
-   - Analyze CloudWatch metrics for CPU, memory, network
-   - Use AWS Compute Optimizer recommendations
-   - Downsize over-provisioned instances
-
-3. **Purchasing optimization:**
-   - Convert on-demand to Reserved Instances/Savings Plans
-   - Use Spot Instances for fault-tolerant, stateless workloads
-   - Implement Auto Scaling to match demand
-
-4. **Architecture review:**
-   - Consider serverless alternatives (Lambda) for burst workloads
-   - Implement auto-start/stop schedules for dev/test instances
-   - Use smaller instance types with containers
-
-5. **Tagging and governance:**
-   - Ensure all resources are tagged (environment, owner, project)
-   - Implement AWS Budgets with alerts
-   - Use Service Control Policies to enforce tagging
-
-## 4. **Disaster Recovery Scenario**
-**Question:** An Availability Zone goes down. How do you ensure your EC2-based application remains available?
+## 2. **EBS Performance Issues**
+**Question:** Your database application on EC2 is experiencing slow I/O performance. The EBS volume is gp2 (general purpose SSD). How would you diagnose and resolve?
 
 **Answer:**
-1. **Multi-AZ architecture:**
-   - Deploy instances across multiple AZs
-   - Use Auto Scaling groups spanning multiple AZs
-   - Distribute traffic using ELB/ALB across AZs
+1. **Diagnosis steps:**
+   - Check CloudWatch metrics: `VolumeReadOps`, `VolumeWriteOps`, `VolumeQueueLength`, `BurstBalance`
+   - For gp2: Monitor if burst credits exhausted (BurstBalance near 0)
+   - Check if application I/O pattern changed (higher IOPS needs)
+   - Use `iostat -x` on Linux to see await time and %util
 
-2. **Data replication:**
-   - Use EBS snapshots for volume backups
-   - Implement RDS Multi-AZ for databases
-   - Store shared data in S3 or EFS
+2. **Resolution options:**
+   - **Increase gp2 size:** gp2 provides baseline IOPS of 3 IOPS/GB (max 16,000)
+   - **Migrate to gp3:** Newer generation, separate IOPS/throughput provisioning
+   - **Switch to io1/io2:** For consistent high performance (>16,000 IOPS)
+   - **Use provisioned IOPS:** If predictable high performance needed
+   - **Optimize application:**
+     - Implement database connection pooling
+     - Add caching layer (ElastiCache)
+     - Optimize queries and indexes
 
-3. **Recovery procedures:**
-   - Have AMIs with latest application versions
-   - Maintain CloudFormation/Terraform templates for infrastructure
-   - Test failover procedures regularly
+3. **Example calculation:**
+   ```
+   Current: 500GB gp2 = 1,500 baseline IOPS
+   Need: 5,000 IOPS consistently
+   Options:
+   - Increase to 1,667GB gp2 (expensive)
+   - Migrate to 500GB gp3 with 5,000 provisioned IOPS (cost-effective)
+   - Use 334GB io2 with 5,000 provisioned IOPS
+   ```
 
-4. **Monitoring and automation:**
-   - Set up CloudWatch alarms for instance/zone failures
-   - Use Route 53 health checks for DNS failover
-   - Automate recovery with AWS Systems Manager Automation
-
-## 5. **Application Deployment Strategy**
-**Question:** How would you deploy a new version of your application on EC2 with zero downtime?
-
-**Answer:**
-1. **Blue-Green deployment:**
-   - Launch new instances with updated application (Green)
-   - Route traffic gradually using Route 53 weighted routing or ALB
-   - Monitor new deployment before decommissioning old
-
-2. **Canary deployment:**
-   - Deploy to small percentage of instances first
-   - Gradually increase traffic to new version
-   - Roll back if metrics show issues
-
-3. **Using AWS services:**
-   - **CodeDeploy:** For in-place or blue-green deployments
-   - **Elastic Beanstalk:** For managed deployment with rollback
-   - **ALB:** For weighted target group routing
-
-4. **Infrastructure as Code:**
-   - Update Launch Templates/Configurations
-   - Create new Auto Scaling group with updated AMI
-   - Shift traffic using ALB listener rules
-
-5. **Validation:**
-   - Implement health checks
-   - Monitor application metrics during deployment
-   - Automated rollback procedures on failure
-
-## 6. **Security Breach Scenario**
-**Question:** You suspect an EC2 instance has been compromised. What immediate actions would you take?
+## 3. **Cost Optimization for EBS Snapshots**
+**Question:** Your EBS snapshot costs have increased significantly. How would you optimize?
 
 **Answer:**
-1. **Containment:**
-   - Isolate instance by modifying Security Groups (allow only your IP)
-   - Take EBS snapshots for forensic analysis
-   - Do NOT terminate instance immediately (preserve evidence)
+1. **Snapshot analysis:**
+   - Use AWS Cost Explorer to identify snapshot costs
+   - Check snapshot age and retention policy
+   - Identify unused/obsolete snapshots
+   - Verify cross-region replication costs
 
-2. **Investigation:**
-   - Check CloudTrail logs for unauthorized API calls
-   - Analyze VPC Flow Logs for suspicious traffic
-   - Use GuardDuty findings
-   - Check instance metadata service access logs
+2. **Optimization strategies:**
+   - **Implement lifecycle policies:**
+     ```bash
+     # AWS CLI example
+     aws dlm create-lifecycle-policy --policy-details file://policy.json
+     ```
+     ```json
+     {
+       "PolicyType": "EBS_SNAPSHOT_MANAGEMENT",
+       "ResourceTypes": ["VOLUME"],
+       "Schedules": [
+         {
+           "Name": "DailyBackups",
+           "RetainRule": {"Count": 7}
+         },
+         {
+           "Name": "WeeklyBackups",
+           "RetainRule": {"Count": 4},
+           "CreateRule": {"Interval": 7, "IntervalUnit": "DAYS"}
+         }
+       ]
+     }
+     ```
+   
+   - **Use incremental snapshots:** Only changed blocks stored
+   - **Delete old/unused snapshots:** With proper approval workflow
+   - **Consider alternative backups:** For less critical data, use AMI lifecycle policies
+   - **Compression:** Some third-party tools offer compression
 
-3. **Remediation:**
-   - Rotate all credentials (IAM roles, application keys, SSH keys)
-   - Launch new instance from clean AMI
-   - Restore data from last known good backup
-   - Apply all security patches
+3. **Architecture improvements:**
+   - Implement data tiering (hot vs cold data)
+   - Use smaller volumes with specific data only
+   - Consider EBS Snapshots Archive tier for long-term retention
 
-4. **Prevention:**
-   - Implement IMDSv2 with hop limit
-   - Use Security Hub for compliance monitoring
-   - Regular vulnerability scanning
-   - Minimal IAM roles with least privilege
-
-## 7. **Performance Degradation Scenario**
-**Question:** Users report slow response times from your application running on EC2. How do you diagnose?
-
-**Answer:**
-1. **End-to-end tracing:**
-   - Check ELB/ALB metrics (latency, request count)
-   - Use X-Ray for distributed tracing
-   - Monitor application performance with CloudWatch custom metrics
-
-2. **Resource analysis:**
-   - Check EC2 metrics: CPU, memory, disk I/O, network
-   - Monitor EBS volume performance (IOPS, throughput)
-   - Check ENI network performance
-
-3. **Dependency checks:**
-   - Test database performance (RDS/ElastiCache metrics)
-   - Check external API response times
-   - Verify S3/DynamoDB latency
-
-4. **Instance-level investigation:**
-   - Use CloudWatch Agent for enhanced monitoring
-   - Check swap usage, disk space
-   - Analyze garbage collection logs (for Java apps)
-   - Review application logs for errors or slow queries
-
-## 8. **Auto Scaling Issues**
-**Question:** Your Auto Scaling group isn't scaling out during high traffic, causing performance issues. How do you troubleshoot?
+## 4. **AMI Management & Compliance**
+**Question:** Your security team requires all EC2 instances to use the latest AMI with security patches. How would you implement this?
 
 **Answer:**
-1. **Verify Auto Scaling configuration:**
-   - Check scaling policies and metrics/thresholds
-   - Verify CloudWatch alarms are in "ALARM" state
-   - Check cooldown periods and warm-up times
+1. **Golden AMI pipeline:**
+   - **Build pipeline:**
+     ```
+     Source AMI → Packer/EC2 Image Builder → Security scanning → 
+     Vulnerability assessment → Approved Golden AMI → Shared across accounts
+     ```
+   - Use AWS EC2 Image Builder for automated AMI creation
+   - Integrate with vulnerability scanners (Inspector, third-party)
 
-2. **Capacity issues:**
-   - Verify instance limits in the region
-   - Check if desired capacity exceeds max size
-   - Verify Launch Template/Configuration
+2. **Automation implementation:**
+   - Use Systems Manager State Manager to enforce AMI compliance
+   - Implement Launch Templates referencing latest approved AMI
+   - Use Parameter Store to store approved AMI IDs
+   
+   ```json
+   // Launch Template versioning
+   {
+     "LaunchTemplateName": "app-server-lt",
+     "VersionDescription": "Updated with patched AMI-12345",
+     "LaunchTemplateData": {
+       "ImageId": "ami-1234567890abcdef0",
+       "InstanceType": "t3.large"
+     }
+   }
+   ```
 
-3. **Instance launch problems:**
-   - Check Auto Scaling group activity history
-   - Verify AMI availability
-   - Check subnet/IP availability
-   - Review Security Group and IAM role assignments
+3. **Update strategy:**
+   - Blue-green deployment for AMI updates
+   - Canary deployments for testing new AMIs
+   - Automated AMI deprecation after N days
 
-4. **Testing:**
-   - Manually execute scaling policy
-   - Test instance launch manually
-   - Use predictive scaling for better planning
+4. **Monitoring and compliance:**
+   - Use Config rules to detect non-compliant instances
+   - Set up EventBridge rules for AMI update notifications
+   - Regular patching schedule (e.g., every 2 weeks)
 
+## 5. **Launch Templates for Auto Scaling**
+**Question:** Your Auto Scaling group needs to deploy instances with different configurations for dev/staging/prod. How would you manage this using Launch Templates?
+
+**Answer:**
+1. **Launch Template structure:**
+   ```json
+   // Base template (common settings)
+   {
+     "NetworkInterfaces": [{"DeviceIndex": 0, "SubnetId": "subnet-123"}],
+     "ImageId": "ami-base123",
+     "InstanceType": "t3.medium",
+     "KeyName": "app-key",
+     "TagSpecifications": [{"ResourceType": "instance", "Tags": [...]}]
+   }
+   
+   // Environment-specific overrides
+   Dev:    InstanceType = t3.small,  EBS = gp2 100GB
+   Stage:  InstanceType = t3.medium, EBS = gp3 200GB
+   Prod:   InstanceType = t3.large,  EBS = io2 500GB
+   ```
+
+2. **Implementation approach:**
+   - Use versioned Launch Templates for each environment
+   - Store configuration in Parameter Store/Secrets Manager
+   - Use IAM instance profiles for environment-specific permissions
+   
+   ```bash
+   # Create template versions
+   aws ec2 create-launch-template-version \
+     --launch-template-name app-template \
+     --version-description "Production v2" \
+     --source-version 1 \
+     --launch-template-data '{"InstanceType":"m5.large"}'
+   ```
+
+3. **Auto Scaling integration:**
+   - Each environment has its own Auto Scaling group
+   - Use mixed instances policy for flexibility
+   - Implement instance refresh for rolling updates
+
+   ```json
+   {
+     "AutoScalingGroupName": "prod-asg",
+     "LaunchTemplate": {
+       "LaunchTemplateName": "app-template",
+       "Version": "$Latest"  // or specific version
+     },
+     "MixedInstancesPolicy": {
+       "InstancesDistribution": {
+         "OnDemandPercentageAboveBaseCapacity": 70
+       }
+     }
+   }
+   ```
+
+## 6. **Cross-Region Disaster Recovery**
+**Question:** How would you implement a cross-region DR strategy using EBS snapshots and AMIs?
+
+**Answer:**
+1. **Architecture design:**
+   - Primary region: us-east-1
+   - DR region: us-west-2
+   - RPO: 1 hour, RTO: 4 hours
+
+2. **Implementation steps:**
+   - **Snapshot replication:**
+     ```bash
+     # Copy snapshot to DR region
+     aws ec2 copy-snapshot \
+       --source-region us-east-1 \
+       --source-snapshot-id snap-123 \
+       --region us-west-2 \
+       --description "DR copy"
+     ```
+   
+   - **Automation using Lambda:**
+     - EventBridge scheduled rule triggers Lambda
+     - Lambda creates snapshots, copies to DR region
+     - Lambda creates AMI from latest DR snapshot
+   
+   - **AMI sharing:**
+     ```bash
+     # Share AMI with DR region account
+     aws ec2 modify-image-attribute \
+       --image-id ami-123 \
+       --launch-permission "Add=[{UserId=dr-account-id}]"
+     ```
+
+3. **Recovery procedure:**
+   - In DR event: Launch instances from latest AMI
+   - Update Route 53 DNS failover routing
+   - Restore databases from replicated snapshots
+   - Test application functionality
+
+4. **Cost optimization:**
+   - Only replicate critical volumes
+   - Use snapshot lifecycle policies in DR region
+   - Consider cold storage for older DR snapshots
+
+## 7. **Encryption & Security Compliance**
+**Question:** A compliance audit requires all EBS volumes and snapshots to be encrypted. How would you implement and verify this?
+
+**Answer:**
+1. **Implementation strategy:**
+   - **Default encryption:** Enable EBS encryption by default at account level
+   ```bash
+   aws ec2 enable-ebs-encryption-by-default
+   ```
+   
+   - **Launch Template configuration:**
+   ```json
+   {
+     "BlockDeviceMappings": [{
+       "DeviceName": "/dev/sda1",
+       "Ebs": {
+         "Encrypted": true,
+         "KmsKeyId": "alias/aws/ebs"
+         // or custom KMS key
+       }
+     }]
+   }
+   ```
+   
+   - **Snapshot encryption:**
+     - All snapshots of encrypted volumes are automatically encrypted
+     - Copy unencrypted snapshots to encrypted:
+     ```bash
+     aws ec2 copy-snapshot --encrypted --kms-key-id alias/aws/ebs
+     ```
+
+2. **Verification and compliance:**
+   - **AWS Config rules:** `ebs-snapshot-public-restorable-check`, `encrypted-volumes`
+   - **Custom compliance checks:**
+     ```python
+     import boto3
+     ec2 = boto3.client('ec2')
+     
+     # Check volume encryption
+     volumes = ec2.describe_volumes()
+     for vol in volumes['Volumes']:
+         if not vol['Encrypted']:
+             print(f"Unencrypted volume: {vol['VolumeId']}")
+     ```
+
+3. **Key management:**
+   - Use AWS KMS for key management
+   - Implement key rotation policies
+   - Set up cross-account key sharing for multi-account strategies
+
+## 8. **Storage Optimization Scenario**
+**Question:** Your application has varying storage needs - some data is accessed frequently, some rarely. How would you optimize EBS costs?
+
+**Answer:**
+1. **EBS volume types strategy:**
+   ```
+   Hot data (frequent access):        io2/io1 (high IOPS needed)
+   Warm data (regular access):        gp3 (balanced cost-performance)
+   Cool data (infrequent access):     st1 (throughput optimized HDD)
+   Cold data (rare access, backup):   sc1 (cold HDD)
+   ```
+
+2. **Implementation approach:**
+   - **Multi-volume architecture:**
+     - Root volume: gp3 (OS and applications)
+     - Database volume: io2 (high performance)
+     - Logs volume: st1 (sequential writes)
+     - Archive volume: sc1 (old data)
+   
+   - **Lifecycle management:**
+     - Use Data Lifecycle Manager to transition snapshots to archive
+     - Implement Lambda to move data between volume types based on access patterns
+   
+   - **Monitoring and optimization:**
+     ```bash
+     # Monitor volume performance metrics
+     aws cloudwatch get-metric-statistics \
+       --namespace AWS/EBS \
+       --metric-name VolumeReadBytes \
+       --dimensions Name=VolumeId,Value=vol-123
+     ```
+
+3. **Cost comparison example:**
+   ```
+   1TB storage for 1 month:
+   - io2 (16,000 IOPS): ~$1,000/month
+   - gp3 (3,000 IOPS):  ~$100/month
+   - st1:              ~$45/month
+   - sc1:              ~$25/month
+   ```
+
+## Best Practices Summary:
+
+### EBS:
+- Always use gp3 over gp2 for new deployments
+- Enable encryption by default
+- Monitor performance metrics and burst balances
+- Implement proper backup strategies
+
+### Snapshots:
+- Automate with Data Lifecycle Manager
+- Test restore procedures regularly
+- Consider archive tier for long-term retention
+- Tag snapshots for cost allocation
+
+### AMIs:
+- Implement Golden AMI pipeline
+- Version control for AMI management
+- Regular patching schedule
+- Cross-account sharing for enterprise
+
+### Launch Templates:
+- Use versioning for change management
+- Reference AMIs via SSM Parameter Store
+- Implement mixed instances policies
+- Use for both Auto Scaling and single instances
+
+### Interview Tips:
+- Always mention trade-offs (cost vs performance vs availability)
+- Reference specific AWS services by name
+- Include CLI commands or infrastructure code examples
+- Discuss monitoring and automation aspects
+- Consider security and compliance requirements
